@@ -10,6 +10,7 @@ The plugin and the [DAB template](../template/) share the same scaffold contract
 
 | Skill | Trigger | What it does |
 |-------|---------|--------------|
+| **`agentops-bigbook`** | `agentops best practices`, `which deployment pattern`, `is multi-agent warranted`, `agent evaluation strategy` | Advisory reference distilled from the Big Book of AgentOps — deployment patterns, the project pipeline, DevOps principles, anti-patterns, evaluation & observability, governance, and stakeholder management. The "why / which / what not to do" that comes before you scaffold; routes to the other skills to execute. |
 | **`agentops-stacks`** | `scaffold a new agentops project` | Scaffolds a new multi-agent LangGraph project (per-agent Databricks Apps, shared components, UC schema and volume, MLflow experiments, CI/CD wiring). One-time use at project start. |
 | **`agentops-lifecycle`** | `walk me through the agentops lifecycle` | Guides an existing scaffold through the complete Single-Account Single-Agent lifecycle — data prep, agent dev, eval gate, SME calibration, CI/CD promotion, batch eval baseline, and production monitoring. 10 steps across dev → staging → prod. |
 | **`add-agent`** | `add agent`, `new agent`, `create another agent` | Adds a new agent to an existing project — copies an existing agent as a template and wires it into `databricks.yml` and the manifest. |
