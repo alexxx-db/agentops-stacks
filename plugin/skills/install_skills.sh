@@ -22,7 +22,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-SKILL_NAMES=("agentops-stacks" "agentops-lifecycle" "add-agent" "add-supervisor" "vector-search-ops" "lakebase-ops" "uc-functions-ops")
+SKILL_NAMES=("agentops-bigbook" "agentops-stacks" "agentops-lifecycle" "add-agent" "add-supervisor" "vector-search-ops" "lakebase-ops" "uc-functions-ops")
 SKILLS_DIR=".claude/skills"
 INSTALL_TO_GENIE=false
 DB_PROFILE="${DATABRICKS_CONFIG_PROFILE:-DEFAULT}"
@@ -47,6 +47,7 @@ show_help() {
     echo "  ./install_skills.sh --install-to-genie --profile prod"
     echo ""
     echo -e "${GREEN}Available skills:${NC}"
+    echo "  - agentops-bigbook:   Advisory reference (Big Book of AgentOps): patterns, anti-patterns, eval, governance"
     echo "  - agentops-stacks:    Scaffold a new DAB project with CI/CD and UC conventions"
     echo "  - agentops-lifecycle: Guide an existing scaffold through the 10-step dev→prod lifecycle"
     echo "  - add-agent:          Add a second agent to an existing scaffold"
@@ -59,6 +60,11 @@ show_help() {
 
 list_skills() {
     echo -e "${BLUE}Available Skills:${NC}"
+    echo ""
+    echo -e "  ${GREEN}agentops-bigbook${NC}"
+    echo "    Advisory reference from the Big Book of AgentOps: deployment patterns, the"
+    echo "    project pipeline, DevOps principles, anti-patterns, evaluation, governance,"
+    echo "    and stakeholder management — the 'why / which / what not to do' before you build"
     echo ""
     echo -e "  ${GREEN}agentops-stacks${NC}"
     echo "    Scaffold a new DAB project (dev/staging/prod, UC conventions, CI/CD)"
