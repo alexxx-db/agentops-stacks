@@ -6,7 +6,8 @@
 # MAGIC can scaffold new DAB projects and guide them through the full production
 # MAGIC lifecycle.
 # MAGIC
-# MAGIC Installs six skills:
+# MAGIC Installs seven skills:
+# MAGIC - `agentops-bigbook` — advisory reference (Big Book of AgentOps): patterns, anti-patterns, eval, governance
 # MAGIC - `agentops-stacks` — scaffolds a new project via `databricks bundle init`
 # MAGIC - `agentops-lifecycle` — guides an existing scaffold through the 10-step dev→prod lifecycle
 # MAGIC - `add-agent` — adds a second agent to an existing scaffold
@@ -76,7 +77,7 @@ def _upload(w, workspace_path, content):
 
 # ── Main ───────────────────────────────────────────────────────────────────
 
-SKILLS = ["agentops-stacks", "agentops-lifecycle", "add-agent", "vector-search-ops", "lakebase-ops", "uc-functions-ops"]
+SKILLS = ["agentops-bigbook", "agentops-stacks", "agentops-lifecycle", "add-agent", "vector-search-ops", "lakebase-ops", "uc-functions-ops"]
 
 w = WorkspaceClient()
 username = w.current_user.me().user_name
