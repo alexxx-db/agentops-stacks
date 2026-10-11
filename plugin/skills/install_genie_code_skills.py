@@ -6,7 +6,7 @@
 # MAGIC can scaffold new DAB projects and guide them through the full production
 # MAGIC lifecycle.
 # MAGIC
-# MAGIC Installs seven skills:
+# MAGIC Installs eight skills:
 # MAGIC - `agentops-bigbook` — advisory reference (Big Book of AgentOps): patterns, anti-patterns, eval, governance
 # MAGIC - `agentops-stacks` — scaffolds a new project via `databricks bundle init`
 # MAGIC - `agentops-lifecycle` — guides an existing scaffold through the 10-step dev→prod lifecycle
@@ -14,6 +14,7 @@
 # MAGIC - `vector-search-ops` — operates and troubleshoots the Vector Search component
 # MAGIC - `lakebase-ops` — operates and troubleshoots the Lakebase memory component
 # MAGIC - `uc-functions-ops` — registers, grants, and manages UC function tools
+# MAGIC - `usage-tracking-ops` — tags resources and attaches usage policies for cost attribution
 # MAGIC
 # MAGIC Destination: `/Workspace/Users/<your_username>/.assistant/skills/<skill-name>/SKILL.md`
 # MAGIC
@@ -77,7 +78,7 @@ def _upload(w, workspace_path, content):
 
 # ── Main ───────────────────────────────────────────────────────────────────
 
-SKILLS = ["agentops-bigbook", "agentops-stacks", "agentops-lifecycle", "add-agent", "vector-search-ops", "lakebase-ops", "uc-functions-ops"]
+SKILLS = ["agentops-bigbook", "agentops-stacks", "agentops-lifecycle", "add-agent", "vector-search-ops", "lakebase-ops", "uc-functions-ops", "usage-tracking-ops"]
 
 w = WorkspaceClient()
 username = w.current_user.me().user_name

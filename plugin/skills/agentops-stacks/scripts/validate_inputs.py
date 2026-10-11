@@ -25,6 +25,10 @@ VALID_CICD = {
 VALID_MEMORY_TYPES = {"short_term", "long_term", "both"}
 VALID_EVAL_SOURCES = {"synthetic", "manual", "production_traces", "existing"}
 YES_NO = {"yes", "no"}
+# Serverless usage policy ID: a UUID, or blank to skip (kept in sync with the schema pattern).
+USAGE_POLICY_ID_PATTERN = re.compile(
+    r"^$|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 
 def validate(config: dict) -> tuple[list[str], list[str]]:
@@ -90,6 +94,11 @@ def validate(config: dict) -> tuple[list[str], list[str]]:
         if val not in YES_NO:
             errors.append(f"Invalid {key} '{val}'. Must be 'yes' or 'no'.")
 
+    # Schema default is "yes", unlike the inputs above.
+    cost_tags = config.get("input_enable_cost_tags", "yes")
+    if cost_tags not in YES_NO:
+        errors.append(f"Invalid input_enable_cost_tags '{cost_tags}'. Must be 'yes' or 'no'.")
+
     # --- Conditional validations ---
     if config.get("input_use_vector_search") == "no" and config.get("input_has_chunked_table") == "yes":
         warnings.append(
@@ -106,6 +115,25 @@ def validate(config: dict) -> tuple[list[str], list[str]]:
         warnings.append(
             "input_uc_functions_exist is 'yes' but UC functions are disabled. "
             "The setting will be ignored."
+        )
+
+    # --- Usage tracking ---
+    policy_id = config.get("input_usage_policy_id") or ""
+    if not isinstance(policy_id, str) or not USAGE_POLICY_ID_PATTERN.fullmatch(policy_id):
+        errors.append(
+            f"Invalid usage_policy_id {policy_id!r}. Must be a UUID or blank."
+        )
+        policy_id = ""
+    if cost_tags == "no" and policy_id:
+        warnings.append(
+            "input_usage_policy_id is set but cost tags are disabled. "
+            "The policy ID will be ignored."
+        )
+    elif cost_tags == "yes" and not policy_id:
+        warnings.append(
+            "No usage policy ID: resources are tagged, but serverless usage (Apps, "
+            "Vector Search, Lakebase) stays untagged until one is set. "
+            "See docs/usage-tracking.md in the generated project."
         )
 
     # --- Eval dataset source ---

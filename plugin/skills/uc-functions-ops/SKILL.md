@@ -25,6 +25,8 @@ Covers day-to-day operations for the `resources/uc_function_registration.yml` co
 | `src/components/tools/definitions/` | Function definitions (`.py` or `.sql` per function) |
 | `src/agents/<name>/tools.py` | Agent tool selection — loads UC functions via `UCFunctionToolkit` |
 
+With usage tracking enabled, the registration job has `tags` (`project`, `environment`) that are forwarded to its cluster. If you switch the job to a `job_cluster_key` cluster, also add `custom_tags`. If you switch it to serverless (`environments`), add `budget_policy_id: ${var.usage_policy_id}`. See the `usage-tracking-ops` skill.
+
 ---
 
 ## Operations

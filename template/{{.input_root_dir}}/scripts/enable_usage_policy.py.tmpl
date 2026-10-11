@@ -1,0 +1,171 @@
+#!/usr/bin/env python3
+"""Wire serverless usage policy IDs into {{ .input_project_name }}.
+
+Sets `usage_policy_id` per target (or the shared default) in databricks.yml,
+then uncomments every `# budget_policy_id: ${var.usage_policy_id}` line in
+databricks.yml and resources/*.yml. It refuses to uncomment anything unless
+every target resolves to a policy ID, so no target deploys with an empty
+`budget_policy_id`. See docs/usage-tracking.md.
+
+Usage (run from the project root):
+  python3 scripts/enable_usage_policy.py dev=<id> staging=<id> prod=<id>
+  python3 scripts/enable_usage_policy.py --default <id>   # one shared policy
+
+Safe to re-run: existing IDs are overwritten and uncommented lines are left as is.
+"""
+import argparse
+import pathlib
+import re
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+BUNDLE_FILE = ROOT / "databricks.yml"
+UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+COMMENTED_POLICY_LINE = re.compile(r"^(\s*)#\s*budget_policy_id: \$\{var\.usage_policy_id\}.*$")
+TARGET_POLICY_LINE = re.compile(r"^      #?\s*usage_policy_id:\s*(.*?)\s*$")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("assignments", nargs="*", metavar="TARGET=ID", help="Policy ID for a target")
+    parser.add_argument("--default", dest="default_id", help="Shared policy ID for all targets")
+    args = parser.parse_args()
+
+    per_target = {}
+    for item in args.assignments:
+        target, sep, policy_id = item.partition("=")
+        if not sep or not target:
+            parser.error(f"expected TARGET=ID, got '{item}'")
+        per_target[target] = policy_id
+    if not per_target and not args.default_id:
+        parser.error("pass TARGET=ID pairs and/or --default ID")
+    for label, policy_id in [*per_target.items(), ("--default", args.default_id)]:
+        if policy_id is not None and not UUID.match(policy_id):
+            parser.error(f"{label}: '{policy_id}' is not a usage policy ID (UUID)")
+    return per_target, args.default_id
+
+
+def top_level_block(lines, key):
+    """Return (start, end) line indexes of a top-level `key:` block."""
+    start = next((i for i, line in enumerate(lines) if line.rstrip() == f"{key}:"), None)
+    if start is None:
+        return None
+    end = next((i for i in range(start + 1, len(lines)) if re.match(r"^[^\s#]", lines[i])), len(lines))
+    return start, end
+
+
+def set_default(lines, default_id):
+    """Set or read variables.usage_policy_id.default. Returns the resulting default."""
+    block = top_level_block(lines, "variables")
+    var_start = None
+    if block:
+        var_start = next((i for i in range(*block) if lines[i].rstrip() == "  usage_policy_id:"), None)
+    if var_start is None:
+        sys.exit(
+            "databricks.yml has no `usage_policy_id` variable, so usage tracking isn't enabled.\n"
+            "Retrofit tagging first (see the usage-tracking-ops skill)."
+        )
+    for i in range(var_start + 1, block[1]):
+        if re.match(r"^  \S", lines[i]):
+            break
+        match = re.match(r'^    default:\s*"?([^"]*)"?\s*$', lines[i])
+        if match:
+            if default_id is not None:
+                lines[i] = f'    default: "{default_id}"\n'
+                return default_id
+            return match.group(1)
+    if default_id is not None:
+        lines.insert(var_start + 1, f'    default: "{default_id}"\n')
+    return default_id or ""
+
+
+def target_blocks(lines):
+    """Map each target name to its (start, end) line indexes."""
+    block = top_level_block(lines, "targets")
+    if not block:
+        return {}
+    starts = [(i, m.group(1)) for i in range(*block) if (m := re.match(r"^  ([A-Za-z0-9_-]+):\s*$", lines[i]))]
+    return {
+        name: (start, starts[n + 1][0] if n + 1 < len(starts) else block[1])
+        for n, (start, name) in enumerate(starts)
+    }
+
+
+def set_target(lines, target, policy_id):
+    """Set targets.<target>.variables.usage_policy_id, replacing a commented example if present."""
+    start, end = target_blocks(lines)[target]
+    variables = next((i for i in range(start + 1, end) if lines[i].rstrip() == "    variables:"), None)
+    if variables is None:
+        lines[start + 1:start + 1] = ["    variables:\n", f"      usage_policy_id: {policy_id}\n"]
+        return
+    for i in range(variables + 1, end):
+        if re.match(r"^    \S", lines[i]):
+            break
+        if TARGET_POLICY_LINE.match(lines[i]):
+            lines[i] = f"      usage_policy_id: {policy_id}\n"
+            return
+    lines.insert(variables + 1, f"      usage_policy_id: {policy_id}\n")
+
+
+def target_policy(lines, target):
+    """Return the live usage_policy_id override for a target, or None."""
+    start, end = target_blocks(lines)[target]
+    for i in range(start + 1, end):
+        match = TARGET_POLICY_LINE.match(lines[i])
+        if match and not lines[i].lstrip().startswith("#"):
+            return match.group(1).strip('"') or None
+    return None
+
+
+def uncomment_policy_lines(path):
+    text = path.read_text().splitlines(keepends=True)
+    changed = 0
+    for i, line in enumerate(text):
+        match = COMMENTED_POLICY_LINE.match(line)
+        if match:
+            text[i] = match.group(1) + "budget_policy_id: ${var.usage_policy_id}\n"
+            changed += 1
+    if changed:
+        path.write_text("".join(text))
+    return changed
+
+
+def main():
+    per_target, default_id = parse_args()
+    lines = BUNDLE_FILE.read_text().splitlines(keepends=True)
+    targets = target_blocks(lines)
+
+    unknown = sorted(set(per_target) - set(targets))
+    if unknown:
+        sys.exit(f"Unknown target(s): {', '.join(unknown)}. databricks.yml defines: {', '.join(targets)}")
+
+    default = set_default(lines, default_id)
+    for target, policy_id in per_target.items():
+        set_target(lines, target, policy_id)
+
+    missing = [t for t in targets if not (target_policy(lines, t) or default)]
+    if missing:
+        sys.exit(
+            f"No usage policy ID for target(s): {', '.join(missing)}. Nothing was changed.\n"
+            "Pass TARGET=ID for each of them, or --default ID for a shared policy."
+        )
+
+    BUNDLE_FILE.write_text("".join(lines))
+    print("Set usage_policy_id in databricks.yml:")
+    for target in targets:
+        print(f"  {target}: {target_policy(lines, target) or default}")
+
+    for path in [BUNDLE_FILE, *sorted((ROOT / "resources").glob("*.yml"))]:
+        changed = uncomment_policy_lines(path)
+        if changed:
+            print(f"Uncommented {changed} budget_policy_id line(s) in {path.relative_to(ROOT)}")
+
+    print(
+        "\nNext: make sure each policy carries the project and environment tags (serverless\n"
+        "usage takes its tags from the policy only), and that the deploying users and service\n"
+        "principals have the User role on it. Then run `databricks bundle validate -t <target>`."
+    )
+
+
+if __name__ == "__main__":
+    main()

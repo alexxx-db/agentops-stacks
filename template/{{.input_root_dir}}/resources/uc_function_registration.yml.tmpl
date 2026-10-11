@@ -3,7 +3,13 @@ resources:
     uc_function_registration:
       name: "${bundle.name}-uc-function-registration"
       description: "Register UC functions from SQL/Python definitions into ${var.catalog}.${var.schema}"
-      tasks:
+{{ if (eq .input_enable_cost_tags "yes") }}      # Usage tracking: job tags only reach compute the job creates (job clusters).
+      # An existing_cluster_id cluster bills under its own tags, so tag that cluster
+      # too, or switch to a job cluster — see docs/usage-tracking.md.
+      tags:
+        project: {{ .input_project_name }}
+        environment: ${bundle.target}
+{{ end }}      tasks:
         - task_key: register_functions
           notebook_task:
             notebook_path: ../src/components/tools/registry.py

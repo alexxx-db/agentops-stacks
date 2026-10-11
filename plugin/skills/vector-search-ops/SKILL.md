@@ -26,6 +26,8 @@ Covers day-to-day operations for the `resources/vector_search.yml` component sca
 
 The index is named `<catalog>.<schema>.<project>_vs_index` and syncs from `<catalog>.<schema>.<project>_chunked_docs`.
 
+With usage tracking enabled, the VS endpoint is attributed via `budget_policy_id: ${var.usage_policy_id}` (a serverless usage policy). VS endpoints don't take custom tags directly. The data pipeline carries `tags` (`project`, `environment`). Keep both when editing these resources, and add them to any new endpoint or pipeline. See the `usage-tracking-ops` skill.
+
 ---
 
 ## Operations

@@ -10,4 +10,10 @@ Use this directory for:
 - Eval methodology, dataset provenance, judge alignment notes (once eval patterns are applied)
 - Governance docs — DASF mapping, data flow analysis (once governance patterns are applied)
 
+{{ if (eq .input_enable_cost_tags `yes`) -}}
+Included:
+
+- [`usage-tracking.md`](usage-tracking.md) — tag scheme, serverless usage policy setup, and a billing attribution query
+
+{{ end -}}
 Keep the project [`README.md`](../README.md) focused on setup and deployment; everything deeper lives here.

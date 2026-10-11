@@ -8,7 +8,11 @@ resources:
     vs_endpoint:
       name: {{ .input_project_name }}_vs_endpoint
       endpoint_type: STANDARD
-
+{{ if (eq .input_enable_cost_tags "yes") }}      # Usage tracking: VS endpoints take tags only via the serverless usage policy.
+      # This endpoint name is the same in every target, so targets sharing a
+      # workspace share one endpoint and the last deploy's policy wins.
+      {{ template `usage_policy_line` . }}
+{{ end }}
   vector_search_indexes:
     vs_index:
       name: ${var.catalog}.${var.schema}.{{ .input_project_name }}_vs_index

@@ -277,3 +277,52 @@ def test_invalid_type_rejected(project, monkeypatch):
     with pytest.raises(SystemExit):
         addsup.main()
     assert not exists(project, "src/agents/router")
+
+
+# --------------------------------------------------------------------------- #
+# Usage tracking — new agents mirror the project's tagging setup
+# --------------------------------------------------------------------------- #
+
+TAGGED_VARIABLES = """\
+variables:
+  usage_policy_id:
+    description: Serverless usage policy ID for usage tracking and cost attribution
+    default: "{policy_id}"
+
+"""
+
+
+def _enable_tags(project, live: bool):
+    yml = project / "databricks.yml"
+    content = yml.read_text().replace(
+        "include:", TAGGED_VARIABLES.format(policy_id="abc" if live else "") + "include:"
+    )
+    policy = "budget_policy_id: ${var.usage_policy_id}"
+    content = content.replace(
+        "      source_code_path: ./src/agents/rag\n",
+        f"      source_code_path: ./src/agents/rag\n      {policy if live else '# ' + policy}\n",
+    )
+    yml.write_text(content)
+
+
+def test_untagged_project_gets_no_tags(project):
+    addsup.append_agent_resources_to_databricks_yml(project, "router")
+    yml = read(project, "databricks.yml")
+    assert "key: agent" not in yml
+    assert "budget_policy_id" not in yml
+
+
+def test_tagged_project_tags_supervisor_with_commented_policy(project):
+    _enable_tags(project, live=False)
+    addsup.append_agent_resources_to_databricks_yml(project, "router")
+    yml = read(project, "databricks.yml")
+    assert "key: agent\n          value: router" in yml
+    assert "value: ${bundle.target}" in yml
+    assert yml.count("# budget_policy_id: ${var.usage_policy_id}") == 2
+
+
+def test_tagged_project_with_live_policy_wires_supervisor_app(project):
+    _enable_tags(project, live=True)
+    addsup.append_agent_resources_to_databricks_yml(project, "router")
+    lines = [l.strip() for l in read(project, "databricks.yml").splitlines()]
+    assert lines.count("budget_policy_id: ${var.usage_policy_id}") == 2

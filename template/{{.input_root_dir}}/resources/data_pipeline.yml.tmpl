@@ -12,3 +12,12 @@ resources:
         schema: ${var.schema}
       channel: PREVIEW
       development: true
+{{ if (eq .input_enable_cost_tags "yes") }}      # Usage tracking: pipeline tags are forwarded to pipeline clusters and billing.
+      # If you switch to `serverless: true`, also add
+      # `budget_policy_id: ${var.usage_policy_id}`. A job-triggered pipeline doesn't
+      # inherit the job's policy, and in development mode policy tag changes take
+      # up to 24 hours to apply (see docs/usage-tracking.md).
+      tags:
+        project: {{ .input_project_name }}
+        environment: ${bundle.target}
+{{ end }}

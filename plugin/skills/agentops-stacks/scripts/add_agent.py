@@ -86,6 +86,30 @@ def get_project_name(project_root: Path) -> str:
     return "unknown"
 
 
+def usage_tracking_snippets(content: str, project_name: str, agent_name: str) -> tuple[str, str]:
+    """Return (experiment_tags, app_policy_line) matching the project's usage
+    tracking setup, or ("", "") when the project was scaffolded without tags.
+
+    The app policy line is live only if databricks.yml already has a live
+    `budget_policy_id: ${var.usage_policy_id}`; otherwise it stays commented
+    so an empty policy ID never reaches the API.
+    """
+    if not re.search(r"^  usage_policy_id:", content, re.MULTILINE):
+        return "", ""
+    experiment_tags = f"""
+      tags:
+        - key: project
+          value: {project_name}
+        - key: environment
+          value: ${{bundle.target}}
+        - key: agent
+          value: {agent_name}"""
+    policy = "budget_policy_id: ${var.usage_policy_id}"
+    if not re.search(r"^\s*budget_policy_id: \$\{var\.usage_policy_id\}", content, re.MULTILINE):
+        policy = f"# {policy}  # TODO: wire with scripts/enable_usage_policy.py — see docs/usage-tracking.md"
+    return experiment_tags, f"\n      {policy}"
+
+
 def append_to_databricks_yml(project_root: Path, new_name: str):
     """Append experiment + app resource for the new agent to databricks.yml."""
     yml_path = project_root / "databricks.yml"
@@ -93,12 +117,13 @@ def append_to_databricks_yml(project_root: Path, new_name: str):
     project_name = get_project_name(project_root)
     hyphenated_name = new_name.replace("_", "-")
     hyphenated_project = project_name.replace("_", "-")
+    experiment_tags, app_policy_line = usage_tracking_snippets(content, project_name, new_name)
 
     # Build the new experiment block
     experiment_block = f"""
     {new_name}_experiment:
       name: /Shared/${{bundle.name}}_{new_name}_${{bundle.target}}
-      artifact_location: dbfs:/Volumes/${{var.catalog}}/${{var.schema}}/artifacts"""
+      artifact_location: dbfs:/Volumes/${{var.catalog}}/${{var.schema}}/artifacts{experiment_tags}"""
 
     # Build the new app block
     app_block = f"""
@@ -107,7 +132,7 @@ def append_to_databricks_yml(project_root: Path, new_name: str):
       description: "{new_name} agent — {project_name}"
       source_code_path: ./src/agents/{new_name}
       config:
-        command: ["uv", "run", "python", "app/start_server.py"]
+        command: ["uv", "run", "python", "app/start_server.py"]{app_policy_line}
       resources:
         - name: "experiment"
           experiment:
