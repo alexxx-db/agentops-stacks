@@ -252,6 +252,34 @@ def test_vector_search_enabled_emits_resources(tmp_path):
     assert file_exists(p, "src/components/retriever/data_pipeline.py")
 
 
+@pytest.mark.parametrize("cost_tags", ["yes", "no"])
+def test_data_pipeline_is_serverless(tmp_path, cost_tags):
+    """Serverless-only workspaces reject classic pipelines; dev mode comes from the target."""
+    p = gen(tmp_path, input_use_vector_search="yes", input_enable_cost_tags=cost_tags)
+    pipeline = read_file(p, "resources/data_pipeline.yml")
+    assert "serverless: true" in pipeline
+    assert "development:" not in pipeline
+
+
+@pytest.mark.parametrize("cost_tags", ["yes", "no"])
+def test_uc_registration_job_defaults_to_serverless(tmp_path, cost_tags):
+    """No live cluster setting: the task runs on serverless (tagged via the usage policy)."""
+    p = gen(tmp_path, input_use_uc_functions="yes", input_enable_cost_tags=cost_tags)
+    job = read_file(p, "resources/uc_function_registration.yml")
+    live = [l.strip() for l in job.splitlines() if not l.strip().startswith("#")]
+    assert not any(l.startswith(("existing_cluster_id:", "job_clusters:", "job_cluster_key:")) for l in live)
+    assert "# job_clusters:" in job
+
+
+def test_uc_registration_job_classic_example_tags_cluster(tmp_path):
+    """Classic compute bills under cluster custom_tags, so the job_clusters example carries them."""
+    p = gen(tmp_path, input_use_uc_functions="yes")
+    job = read_file(p, "resources/uc_function_registration.yml")
+    assert "#       custom_tags:" in job
+    assert f"#         project: {DEFAULT_PROJECT_NAME}" in job
+    assert "#         environment: ${bundle.target}" in job
+
+
 def test_vector_search_disabled_omits_resources(tmp_path):
     p = gen(tmp_path)
     assert not file_exists(p, "resources/vector_search.yml")
@@ -481,7 +509,13 @@ ALL_COMPONENTS = {
 }
 LIVE_POLICY_LINE = "budget_policy_id: ${var.usage_policy_id}"
 COMMENTED_POLICY_LINE = "# budget_policy_id: ${var.usage_policy_id}"
-POLICY_RESOURCE_FILES = ["databricks.yml", "resources/lakebase.yml", "resources/vector_search.yml"]
+POLICY_RESOURCE_FILES = [
+    "databricks.yml",
+    "resources/lakebase.yml",
+    "resources/vector_search.yml",
+    "resources/data_pipeline.yml",
+    "resources/uc_function_registration.yml",
+]
 
 
 def _live_policy_lines(content):
@@ -537,8 +571,6 @@ def test_tags_with_policy_wires_policy_everywhere(tmp_path):
     for f in POLICY_RESOURCE_FILES:
         assert _live_policy_lines(read_file(p, f)), f"No live policy line in {f}"
     assert f'default: "{POLICY_ID}"' in read_file(p, "databricks.yml")
-    # The pipeline isn't serverless, so it carries tags but no usage policy.
-    assert not _live_policy_lines(read_file(p, "resources/data_pipeline.yml"))
 
 
 def test_usage_tracking_doc_and_script_reference_project(tmp_path):
@@ -572,8 +604,6 @@ def test_enable_usage_policy_wires_every_target(tmp_path):
         content = read_file(p, f)
         assert _live_policy_lines(content), f"No live policy line in {f}"
         assert COMMENTED_POLICY_LINE not in content, f
-    # The classic pipeline's explanatory comment is left alone.
-    assert not _live_policy_lines(read_file(p, "resources/data_pipeline.yml"))
 
 
 def test_enable_usage_policy_shared_default(tmp_path):

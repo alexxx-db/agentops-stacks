@@ -199,7 +199,7 @@ for t in tools:
 | Function registered but agent can't call it | Missing EXECUTE grant on app SP | Grant EXECUTE (step 5) |
 | `FunctionNotFound` at agent runtime | Function not registered or wrong catalog/schema | Run `SHOW FUNCTIONS IN <catalog>.<schema>` to verify |
 | Tool description is wrong | Docstring outdated | Update docstring and re-register (step 4) |
-| Registration job fails with `existing_cluster_id not set` | Job resource needs a cluster | Set `existing_cluster_id` in `uc_function_registration.yml` or add a `job_cluster_key` |
+| Registration job fails with `existing_cluster_id not set` | An empty `existing_cluster_id` was added to the task (the job runs on serverless by default) | Remove it, set a real cluster ID, or uncomment the `job_clusters` example and add `job_cluster_key: main` |
 | `SQL function already exists` error | `CREATE FUNCTION` instead of `CREATE OR REPLACE` | Use `CREATE OR REPLACE FUNCTION` in `.sql` files |
 
 ## Function naming convention

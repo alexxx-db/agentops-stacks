@@ -16,8 +16,11 @@ References: [Use tags to attribute and track usage](https://docs.databricks.com/
 | `agent` | agent name | Per-agent MLflow experiments |
 
 Serverless resources (Apps, Vector Search, Lakebase) get `project` and
-`environment` only from the serverless usage policy below. Jobs, pipelines, and
-experiments carry the tags themselves. Per-agent app usage is attributed with
+`environment` only from the serverless usage policy below. Serverless jobs and
+pipelines also get billing tags from the policy; their own `tags` label the
+resource but aren't relied on for serverless billing. Classic compute (job or
+all-purpose clusters) bills under the cluster's `custom_tags`. Experiments carry
+the tags themselves. Per-agent app usage is attributed with
 `usage_metadata.app_name` in `system.billing.usage` (each agent is its own App).
 
 In `mode: development` (the `dev` target), the bundle also adds a `dev: <your user>`
@@ -31,10 +34,10 @@ tag to jobs and pipelines.
 | Lakebase project (`resources/lakebase.yml`) | Usage policy only (`budget_policy_id`) |
 {{- end }}
 {{- if (eq .input_use_uc_functions `yes`) }}
-| UC function registration job (`resources/uc_function_registration.yml`) | Job `tags`. These reach only job clusters the job creates. With `existing_cluster_id`, the cluster bills under its own tags, so tag that cluster or switch to a job cluster |
+| UC function registration job (`resources/uc_function_registration.yml`) | Runs on serverless: billing tags come from the usage policy (`budget_policy_id`); job `tags` label the job. For classic compute, uncomment the `job_clusters` example, which sets `custom_tags`. With `existing_cluster_id`, set the same `custom_tags` on that cluster; the job can't tag it |
 {{- end }}
 {{- if (and (eq .input_use_vector_search `yes`) (eq .input_has_chunked_table `no`)) }}
-| Data pipeline (`resources/data_pipeline.yml`) | Pipeline `tags`. Add `budget_policy_id` if you switch it to `serverless: true` (see [Serverless pipelines](#serverless-pipelines)) |
+| Data pipeline (`resources/data_pipeline.yml`) | Serverless pipeline: pipeline `tags` plus usage policy (`budget_policy_id`, see [Serverless pipelines](#serverless-pipelines)) |
 {{- end }}
 {{- if (eq .input_use_vector_search `yes`) }}
 | Vector Search endpoint (`resources/vector_search.yml`) | Usage policy only (`budget_policy_id`, see [AI Search usage policies](https://docs.databricks.com/aws/en/ai-search/budget-policies)). The endpoint name is the same in every target, so targets in one workspace share it and the last deploy's policy wins. Indexes can carry their own policy too, but the bundle schema doesn't expose it yet; set it in the UI or with the SDK's `update_index_budget_policy()` if you need it |
@@ -154,11 +157,12 @@ targets:
 
 ### Serverless pipelines
 
-If you add a serverless pipeline (`serverless: true`), keep in mind:
+Pipelines in this project are serverless (`serverless: true`). For any serverless
+pipeline, keep in mind:
 
 - A pipeline triggered by a job doesn't inherit the job's policy. Set
   `budget_policy_id` on the pipeline itself.
-- In development mode (`development: true`, as in the `dev` target), policy tag
+- In development mode (the `dev` target), policy tag
   changes take up to 24 hours to reach new pipeline updates.
 
 ### Deleted policies
@@ -172,8 +176,9 @@ Keep new resources consistent with the scheme:
 
 | New resource | Add |
 |---|---|
-| Job cluster (`job_clusters[].new_cluster`) | `custom_tags: {project: ..., environment: ${bundle.target}}` (job-level `tags` are also forwarded) |
-| Serverless job (`environments`) | Job `tags` plus `budget_policy_id: ${var.usage_policy_id}` |
+| Job cluster (`job_clusters[].new_cluster`) | `custom_tags: {project: ..., environment: ${bundle.target}}` |
+| Existing all-purpose cluster (`existing_cluster_id`) | Set the same `custom_tags` on the cluster itself; the job can't tag it |
+| Serverless job (no cluster set) | `budget_policy_id: ${var.usage_policy_id}` for billing, plus job `tags` to label the job |
 | Serverless pipeline (`serverless: true`) | Pipeline `tags` plus `budget_policy_id: ${var.usage_policy_id}` (job-triggered pipelines don't inherit the job's policy) |
 | SQL warehouse | `tags: {custom_tags: [{key: project, value: ...}, {key: environment, value: ${bundle.target}}]}` (usage policies don't cover warehouses) |
 | Model serving endpoint | `tags: [{key: project, value: ...}, ...]` plus `budget_policy_id: ${var.usage_policy_id}` |

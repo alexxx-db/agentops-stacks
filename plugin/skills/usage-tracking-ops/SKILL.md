@@ -49,8 +49,8 @@ Policy facts to keep in mind:
 | `databricks.yml` | `variables.usage_policy_id`. Each app has `budget_policy_id: ${var.usage_policy_id}` |
 | `resources/lakebase.yml` | `budget_policy_id` only (tags come from the policy) |
 | `resources/vector_search.yml` | `budget_policy_id` on the VS endpoint (no direct tags). Name is shared across targets, so targets in one workspace share the endpoint and its policy. Index-level policies exist but aren't in the bundle schema; set them in the UI or with `update_index_budget_policy()` |
-| `resources/data_pipeline.yml` | pipeline `tags` map (`budget_policy_id` only if `serverless: true`) |
-| `resources/uc_function_registration.yml` | job `tags` map (reaches job clusters only, not an `existing_cluster_id` cluster) |
+| `resources/data_pipeline.yml` | serverless pipeline: `tags` map plus `budget_policy_id` |
+| `resources/uc_function_registration.yml` | Runs on serverless: billing tags come from `budget_policy_id`; the job `tags` map labels the job. A commented `job_clusters` example sets `custom_tags` for classic compute. An `existing_cluster_id` cluster must carry its own `custom_tags` |
 | `resources/experiment.yml` | experiment `tags` list (not billed, but links traces) |
 | `scripts/create_usage_policy.sh` | Creates one policy per target and wires it in (needs an account-level CLI profile) |
 | `scripts/enable_usage_policy.py` | Writes policy IDs into `databricks.yml` and uncomments the `budget_policy_id` lines. Refuses if a target lacks an ID |
@@ -131,9 +131,18 @@ resources:
       # budget_policy_id: ${var.usage_policy_id}
 
 # resources/uc_function_registration.yml and resources/data_pipeline.yml
+      # budget_policy_id: ${var.usage_policy_id}
       tags:
         project: <project>
         environment: ${bundle.target}
+
+# Any job on classic compute: tag the cluster, since serverless policies don't cover it
+      job_clusters:
+        - job_cluster_key: main
+          new_cluster:
+            custom_tags:
+              project: <project>
+              environment: ${bundle.target}
 
 # resources/vector_search.yml (vector_search_endpoints.vs_endpoint)
       # budget_policy_id: ${var.usage_policy_id}
@@ -159,7 +168,8 @@ Then `databricks bundle validate -t dev`.
 | Resource | Add |
 |---|---|
 | Job cluster (`job_clusters[].new_cluster`) | `custom_tags: {project: <project>, environment: ${bundle.target}}` |
-| Serverless job (`environments`) | job `tags` plus `budget_policy_id: ${var.usage_policy_id}` |
+| Existing all-purpose cluster (`existing_cluster_id`) | the same `custom_tags` on the cluster itself; the job can't tag it |
+| Serverless job (no cluster set) | `budget_policy_id: ${var.usage_policy_id}` for billing (don't rely on job tags for serverless), plus job `tags` to label the job |
 | Serverless pipeline (`serverless: true`) | pipeline `tags` plus `budget_policy_id: ${var.usage_policy_id}`. Job-triggered pipelines don't inherit the job's policy, so set it on the pipeline |
 | SQL warehouse | `tags: {custom_tags: [{key: project, value: <project>}, {key: environment, value: ${bundle.target}}]}` (not covered by usage policies) |
 | Model serving endpoint | `tags: [{key: project, value: <project>}, ...]` plus `budget_policy_id: ${var.usage_policy_id}` |
@@ -209,6 +219,6 @@ experiment `agent` tag. Estimates use list price. Your negotiated rate may diffe
 | Serverless rows have no `project` tag | `budget_policy_id` still commented, or the policy lacks the tags | Attach the policy (step 1). Tags aren't retroactive |
 | No rows yet | Billing lag | `system.billing.usage` lags by a few hours |
 | Tag rejected at deploy | Invalid characters (space, `/`) or more than 20 tags | Fix the key/value. Project and agent names are already safe |
-| UC registration job usage has no tags | Job runs on `existing_cluster_id`; job tags don't reach it | Add `custom_tags` to that cluster, or switch the task to a job cluster |
+| Job usage has no tags | Serverless: `budget_policy_id` still commented. Classic: the cluster lacks `custom_tags` (job tags don't reach an `existing_cluster_id` cluster) | Attach the policy, or add `custom_tags` to the job cluster or existing cluster |
 | VS usage all under one `environment` | Targets share a workspace, so they share the one VS endpoint | Expected. Give each target its own endpoint name if you need the split |
 | `environment` wrong for serverless usage | One shared policy across targets | Create one policy per target and override `usage_policy_id` per target |

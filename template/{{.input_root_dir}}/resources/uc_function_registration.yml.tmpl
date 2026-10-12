@@ -3,13 +3,30 @@ resources:
     uc_function_registration:
       name: "${bundle.name}-uc-function-registration"
       description: "Register UC functions from SQL/Python definitions into ${var.catalog}.${var.schema}"
-{{ if (eq .input_enable_cost_tags "yes") }}      # Usage tracking: job tags only reach compute the job creates (job clusters).
-      # An existing_cluster_id cluster bills under its own tags, so tag that cluster
-      # too, or switch to a job cluster — see docs/usage-tracking.md.
+{{ if (eq .input_enable_cost_tags "yes") }}      # Usage tracking: the task runs on serverless compute, which takes billing tags
+      # from the usage policy (don't rely on job tags for serverless). Classic compute
+      # bills under the cluster's custom_tags; see the job_clusters example below and
+      # docs/usage-tracking.md.
+      {{ template `usage_policy_line` . }}
       tags:
         project: {{ .input_project_name }}
         environment: ${bundle.target}
-{{ end }}      tasks:
+{{ end }}      # Classic compute instead of serverless: uncomment, then add
+      # `job_cluster_key: main` to the task.{{ if (eq .input_enable_cost_tags "yes") }} To use an existing all-purpose
+      # cluster (existing_cluster_id) instead, put the same custom_tags on that
+      # cluster; the job can't tag it.{{ end }}
+      # job_clusters:
+      #   - job_cluster_key: main
+      #     new_cluster:
+      #       spark_version: 16.4.x-scala2.12  # TODO: pick a runtime
+      #       node_type_id: ""  # TODO: pick a node type
+      #       num_workers: 1
+{{- if (eq .input_enable_cost_tags "yes") }}
+      #       custom_tags:
+      #         project: {{ .input_project_name }}
+      #         environment: ${bundle.target}
+{{- end }}
+      tasks:
         - task_key: register_functions
           notebook_task:
             notebook_path: ../src/components/tools/registry.py
@@ -17,4 +34,3 @@ resources:
               catalog: ${var.catalog}
               schema: ${var.schema}
               app_sp: ""  # TODO: set app service principal client ID
-          existing_cluster_id: "" # TODO: set cluster ID or use job_cluster_key

@@ -749,6 +749,12 @@ resources:
   jobs:
     batch_inference:
       name: "${bundle.name}_batch_inference"
+      # Usage tracking (see usage-tracking-ops): serverless billing tags come from
+      # the policy; on classic compute, put the same tags in the cluster's custom_tags.
+      # budget_policy_id: ${var.usage_policy_id}
+      tags:
+        project: <project>
+        environment: ${bundle.target}
       tasks:
         - task_key: run_batch
           notebook_task:
@@ -925,6 +931,12 @@ resources:
   jobs:
     weekly_sme_sampling:
       name: "${bundle.name}_sme_sampling"
+      # Usage tracking (see usage-tracking-ops): serverless billing tags come from
+      # the policy; on classic compute, put the same tags in the cluster's custom_tags.
+      # budget_policy_id: ${var.usage_policy_id}
+      tags:
+        project: <project>
+        environment: ${bundle.target}
       schedule:
         quartz_cron_expression: "0 0 9 ? * MON"   # every Monday 9am UTC
         timezone_id: "UTC"
