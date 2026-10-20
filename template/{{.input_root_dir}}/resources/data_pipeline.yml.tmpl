@@ -11,4 +11,12 @@ resources:
         catalog: ${var.catalog}
         schema: ${var.schema}
       channel: PREVIEW
-      development: true
+      serverless: true
+{{ if (eq .input_enable_cost_tags "yes") }}      # Usage tracking: serverless pipelines take billing tags from the usage policy.
+      # A job-triggered pipeline doesn't inherit the job's policy, and in development
+      # mode policy tag changes take up to 24 hours to apply (see docs/usage-tracking.md).
+      {{ template `usage_policy_line` . }}
+      tags:
+        project: {{ .input_project_name }}
+        environment: ${bundle.target}
+{{ end }}

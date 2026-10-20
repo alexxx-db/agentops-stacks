@@ -9,8 +9,9 @@ Surface these to the user after a successful scaffold:
 3. Set workspace hosts and Unity Catalog grants — see `docs/setup.md` in the rendered project
 4. `uv sync` (generates `uv.lock` — must be committed)
 5. `databricks bundle validate -t dev`
+6. If usage tracking is enabled (`enable_cost_tags: yes`) without a `usage_policy_id`, set one up: run `scripts/create_usage_policy.sh` (needs an account-level CLI profile; it also wires the IDs in), or have a workspace admin create them in Settings → Compute → Serverless usage policies (see `docs/usage-tracking.md`) and then run `python3 scripts/enable_usage_policy.py dev=<id> staging=<id> prod=<id>`. Resource tags work without it, but serverless usage stays untagged.
 
-Do not attempt step 5 from within this skill — it requires the user's workspace authentication and is the first thing they'll exercise themselves.
+Do not attempt step 5 (or create usage policies in step 6) from within this skill — it requires the user's workspace authentication and is the first thing they'll exercise themselves.
 
 ## Two paths to deploy
 

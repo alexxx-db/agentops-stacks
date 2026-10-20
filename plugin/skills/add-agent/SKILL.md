@@ -41,6 +41,8 @@ Adds a new agent to an existing AgentOps Stacks project by copying an existing a
 4. Appends a new app resource to `databricks.yml`
 5. Adds the agent to `.agentops-stacks/manifest.yml`
 
+If the project has usage tracking enabled (a `usage_policy_id` variable in `databricks.yml`), the new experiment gets `project`/`environment`/`agent` tags and the new app gets `budget_policy_id: ${var.usage_policy_id}`. That line is live or commented to match the existing app. See the `usage-tracking-ops` skill.
+
 ## Error handling
 
 - Agent name already exists → abort

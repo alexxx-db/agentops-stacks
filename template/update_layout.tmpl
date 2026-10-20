@@ -48,5 +48,11 @@
     {{ skip (printf `%s/%s` $root_dir `resources/data_pipeline.yml`) }}
 {{ end }}
 
+# --- Usage tracking / cost attribution ---
+{{ if (eq .input_enable_cost_tags `no`) }}
+    {{ skip (printf `%s/%s` $root_dir `docs/usage-tracking.md`) }}
+    {{ skip (printf `%s/%s` $root_dir `scripts`) }}
+{{ end }}
+
 # Remove template processing file itself
 {{ skip `update_layout` }}

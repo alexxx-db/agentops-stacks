@@ -247,6 +247,14 @@ template enables scale-to-zero on dev and leaves staging/prod always-on. Then re
 databricks bundle deploy -t staging
 ```
 
+### 9. Usage tracking tags
+
+When the project has usage tracking enabled, `resources/lakebase.yml` carries
+`budget_policy_id: ${var.usage_policy_id}` (a serverless usage policy). Lakebase usage takes its
+`project`/`environment` tags from that policy, so don't add `custom_tags`. Keep the line when
+editing the project, and give any new Lakebase project the same line. Tag changes apply on
+the next `bundle deploy`. See the `usage-tracking-ops` skill.
+
 ---
 
 ## Troubleshooting

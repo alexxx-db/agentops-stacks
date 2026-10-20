@@ -1,0 +1,213 @@
+# Usage tracking & cost attribution — {{ .input_project_name }}
+
+Every resource in this project is tagged so usage can be attributed back to the
+project, its environment, and each agent in `system.billing.usage`. Tags are for
+tracking and monitoring. They don't set a spend limit.
+
+References: [Use tags to attribute and track usage](https://docs.databricks.com/aws/en/admin/account-settings/usage-detail-tags),
+[Serverless usage policies](https://docs.databricks.com/aws/en/admin/usage/budget-policies).
+
+## Tag scheme
+
+| Tag key | Value | Applied to |
+|---|---|---|
+| `project` | `{{ .input_project_name }}` | Every taggable resource and the usage policy |
+| `environment` | `${bundle.target}` (`dev` / `staging` / `prod`) | Every taggable resource and the usage policy |
+| `agent` | agent name | Per-agent MLflow experiments |
+
+Serverless resources (Apps, Vector Search, Lakebase) get `project` and
+`environment` only from the serverless usage policy below. Serverless jobs and
+pipelines also get billing tags from the policy; their own `tags` label the
+resource but aren't relied on for serverless billing. Classic compute (job or
+all-purpose clusters) bills under the cluster's `custom_tags`. Experiments carry
+the tags themselves. Per-agent app usage is attributed with
+`usage_metadata.app_name` in `system.billing.usage` (each agent is its own App).
+
+In `mode: development` (the `dev` target), the bundle also adds a `dev: <your user>`
+tag to jobs and pipelines.
+
+## How each resource is tagged
+
+| Resource | Mechanism |
+|---|---|
+{{- if (eq .input_use_lakebase `yes`) }}
+| Lakebase project (`resources/lakebase.yml`) | Usage policy only (`budget_policy_id`) |
+{{- end }}
+{{- if (eq .input_use_uc_functions `yes`) }}
+| UC function registration job (`resources/uc_function_registration.yml`) | Runs on serverless: billing tags come from the usage policy (`budget_policy_id`); job `tags` label the job. For classic compute, uncomment the `job_clusters` example, which sets `custom_tags`. With `existing_cluster_id`, set the same `custom_tags` on that cluster; the job can't tag it |
+{{- end }}
+{{- if (and (eq .input_use_vector_search `yes`) (eq .input_has_chunked_table `no`)) }}
+| Data pipeline (`resources/data_pipeline.yml`) | Serverless pipeline: pipeline `tags` plus usage policy (`budget_policy_id`, see [Serverless pipelines](#serverless-pipelines)) |
+{{- end }}
+{{- if (eq .input_use_vector_search `yes`) }}
+| Vector Search endpoint (`resources/vector_search.yml`) | Usage policy only (`budget_policy_id`, see [AI Search usage policies](https://docs.databricks.com/aws/en/ai-search/budget-policies)). The endpoint name is the same in every target, so targets in one workspace share it and the last deploy's policy wins. Indexes can carry their own policy too, but the bundle schema doesn't expose it yet; set it in the UI or with the SDK's `update_index_budget_policy()` if you need it |
+{{- end }}
+| Agent Apps (`databricks.yml`) | Usage policy only (`budget_policy_id`) |
+| MLflow experiments (`resources/experiment.yml`) | Experiment `tags` (not billed; links traces to project/agent) |
+
+> The resource field is still named `budget_policy_id` in the API and bundle
+> schema. It takes a **serverless usage policy** ID. We reference it through the
+> `usage_policy_id` bundle variable. Some resources also show a newer
+> `usage_policy_id` field; it's in Private Preview, so this project uses
+> `budget_policy_id`.
+
+## Serverless usage policy
+
+Serverless compute (Apps, Vector Search, serverless jobs and pipelines, Lakebase) only
+picks up custom tags through a **serverless usage policy**. A policy's tags are
+stamped onto the serverless usage of every resource that references it. Policies
+don't tag classic compute.
+
+If you can use exactly one policy, Databricks applies it to new resources
+automatically. If you can use several and none is chosen, the alphabetically
+first one is used. Setting `budget_policy_id` explicitly keeps attribution
+predictable either way.
+{{ if .input_usage_policy_id }}
+This project was created with usage policy `{{ .input_usage_policy_id }}`, set as
+the `usage_policy_id` variable default in `databricks.yml`.
+{{ else }}
+No usage policy ID was provided at init, so the `budget_policy_id` lines in
+`databricks.yml` and `resources/*.yml` are rendered commented out. Once you have
+a policy, wire it in with one command (see [Wire policy IDs into the bundle](#wire-policy-ids-into-the-bundle)).
+{{ end }}
+### Find an existing policy ID
+
+In the workspace, click your username → **Settings** → **Compute**, and next to
+**Serverless usage policies** click **Manage**. Open the policy; its ID is shown
+on the policy's page. With an account-level CLI profile you can also run
+`databricks account budget-policy list -p <account-profile>`.
+
+The policy must carry the tags `project = {{ .input_project_name }}` and
+`environment = <environment>`. Serverless usage (Apps, Vector Search, Lakebase)
+takes its tags from the policy only, so an untagged policy attaches without
+errors and attributes nothing. To check, open the policy (see above), or look
+at an app's **Settings** page: it shows "Selected policy has no tags" under the
+policy if it has none.
+
+### Create a policy
+
+Creating a policy requires the **workspace admin** role, or the **Serverless usage
+policy: Manager** permission. Viewing and managing every policy in the account
+additionally requires the account-level **Billing admin** role.
+
+**Option A: workspace settings** (or send these steps to a workspace admin):
+
+1. Click your username in the top bar → **Settings** → **Compute**.
+2. Next to **Serverless usage policies**, click **Manage**, then **Create**.
+3. Name it `{{ .input_project_name }}-<environment>` and add the custom tags
+   `project = {{ .input_project_name }}` and `environment = <environment>`.
+4. Repeat for each environment you want to split usage by.
+5. Wire the IDs in (next section).
+
+**Option B: script** (needs an account-level CLI profile, since the CLI only
+exposes the account API):
+
+```bash
+databricks auth login --host <accounts-console-url> --account-id <account-id> -p my-account
+./scripts/create_usage_policy.sh my-account dev staging prod
+```
+
+This creates `{{ .input_project_name }}-dev`, `-staging`, and `-prod` policies tagged with
+`project` and `environment`, then wires their IDs into the bundle (next section).
+
+### Wire policy IDs into the bundle
+
+```bash
+# One policy per environment (recommended):
+python3 scripts/enable_usage_policy.py dev=<dev-id> staging=<staging-id> prod=<prod-id>
+# Or one shared policy for every target:
+python3 scripts/enable_usage_policy.py --default <policy-id>
+```
+
+The script sets `usage_policy_id` under each target in `databricks.yml` and
+uncomments every `# budget_policy_id: ${var.usage_policy_id}` line in
+`databricks.yml` and `resources/*.yml`. If any target would be left without an
+ID, it exits without changing anything, so no target deploys with an empty
+policy. `create_usage_policy.sh` runs this step for you. You can re-run it to
+change IDs.
+
+### Grant access
+
+Users and service principals can only attach policies they have the **User**
+role on. Open each policy (workspace **Settings → Compute → Serverless usage
+policies → Manage**), go to the **Permissions** tab, click **Grant access**, and grant
+**User** to:
+
+- the developers who deploy to `dev`
+- the service principals that deploy to `staging` and `prod` (see `docs/setup.md`)
+
+Without this grant, `databricks bundle deploy` fails with a permission error on
+`budget_policy_id`.
+
+Granting access doesn't attach the policy to resources that already exist.
+Deploy the bundle with `budget_policy_id` set to attach it.
+
+### Per-environment policies
+
+A policy's tags are fixed, so you need one policy per environment for serverless
+usage to carry the right `environment` tag. Set the ID under each target in
+`databricks.yml`:
+
+```yaml
+targets:
+  prod:
+    variables:
+      usage_policy_id: <prod-usage-policy-id>
+```
+
+### Serverless pipelines
+
+Pipelines in this project are serverless (`serverless: true`). For any serverless
+pipeline, keep in mind:
+
+- A pipeline triggered by a job doesn't inherit the job's policy. Set
+  `budget_policy_id` on the pipeline itself.
+- In development mode (the `dev` target), policy tag
+  changes take up to 24 hours to reach new pipeline updates.
+
+### Deleted policies
+
+A resource keeps a deleted policy's ID, and deploys still succeed, but its usage
+is no longer tagged. If tags disappear, check that the policy still exists.
+
+## Adding new resources
+
+Keep new resources consistent with the scheme:
+
+| New resource | Add |
+|---|---|
+| Job cluster (`job_clusters[].new_cluster`) | `custom_tags: {project: ..., environment: ${bundle.target}}` |
+| Existing all-purpose cluster (`existing_cluster_id`) | Set the same `custom_tags` on the cluster itself; the job can't tag it |
+| Serverless job (no cluster set) | `budget_policy_id: ${var.usage_policy_id}` for billing, plus job `tags` to label the job |
+| Serverless pipeline (`serverless: true`) | Pipeline `tags` plus `budget_policy_id: ${var.usage_policy_id}` (job-triggered pipelines don't inherit the job's policy) |
+| SQL warehouse | `tags: {custom_tags: [{key: project, value: ...}, {key: environment, value: ${bundle.target}}]}` (usage policies don't cover warehouses) |
+| Model serving endpoint | `tags: [{key: project, value: ...}, ...]` plus `budget_policy_id: ${var.usage_policy_id}` |
+| New agent | Run `add_agent.py` / `add_supervisor.py`. They add the experiment tags and app policy automatically. |
+
+Limits: at most 20 custom tags per resource. Keys and values may only contain
+letters, digits, and `+ - = . , _ : @` (no spaces or `/`).
+
+## Query usage
+
+Tags appear in `system.billing.usage` within a few hours of usage (tags added
+later are not applied retroactively).
+
+```sql
+SELECT
+  u.usage_date,
+  u.custom_tags['environment']      AS environment,
+  u.billing_origin_product           AS product,
+  u.usage_metadata.app_name          AS app_name,
+  SUM(u.usage_quantity)              AS dbus,
+  SUM(u.usage_quantity * p.pricing.effective_list.default) AS est_list_cost
+FROM system.billing.usage u
+LEFT JOIN system.billing.list_prices p
+  ON u.sku_name = p.sku_name
+ AND u.cloud = p.cloud
+ AND u.usage_start_time >= p.price_start_time
+ AND (p.price_end_time IS NULL OR u.usage_end_time <= p.price_end_time)
+WHERE u.custom_tags['project'] = '{{ .input_project_name }}'
+  AND u.usage_date >= current_date() - INTERVAL 30 DAYS
+GROUP BY ALL
+ORDER BY u.usage_date DESC, est_list_cost DESC;
+```
