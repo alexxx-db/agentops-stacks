@@ -8,8 +8,14 @@ variables:
   schema:
     description: Schema within the catalog for resources, traces, and artifacts
     default: {{ .input_project_name }}
-
-
+{{ if (eq .input_enable_cost_tags "yes") }}  usage_policy_id:
+    # Serverless usage policy whose custom tags (project, environment) are applied
+    # to serverless usage: Apps, Vector Search, pipelines, Lakebase. A workspace
+    # admin creates it (see docs/usage-tracking.md). Override per target to split
+    # usage by environment.
+    description: Serverless usage policy ID for usage tracking and cost attribution
+    default: "{{ .input_usage_policy_id }}"
+{{ end }}
 include:
   - ./resources/experiment.yml
   - ./resources/schemas.yml
@@ -31,7 +37,8 @@ resources:
       source_code_path: ./src/agents/{{ .input_initial_agent_name }}
       config:
         command: ["uv", "run", "python", "app/start_server.py"]
-      resources:
+{{ if (eq .input_enable_cost_tags "yes") }}      {{ template `usage_policy_line` . }}
+{{ end }}      resources:
         - name: "experiment"
           experiment:
             experiment_id: ${resources.experiments.experiment.id}
@@ -57,7 +64,9 @@ targets:
       host: # TODO: set dev workspace URL
     variables:
       catalog: {{ .input_project_name }}_dev
-{{ if (eq .input_use_lakebase "yes") }}    resources:
+{{ if (eq .input_enable_cost_tags "yes") }}      # Use a per-environment usage policy to split serverless usage by environment:
+      # usage_policy_id: <dev-usage-policy-id>
+{{ end }}{{ if (eq .input_use_lakebase "yes") }}    resources:
       postgres_projects:
         memory:
           # Scale the memory endpoint to zero after 5 min idle to save cost in dev.
@@ -70,7 +79,9 @@ targets:
       host: # TODO: set staging workspace URL
     variables:
       catalog: {{ .input_project_name }}_staging
-    run_as:
+{{ if (eq .input_enable_cost_tags "yes") }}      # Use a per-environment usage policy to split serverless usage by environment:
+      # usage_policy_id: <staging-usage-policy-id>
+{{ end }}    run_as:
       user_name: ${workspace.current_user.userName}
 {{ if (eq .input_use_lakebase "yes") }}    resources:
       postgres_projects:
@@ -85,7 +96,9 @@ targets:
       host: # TODO: set prod workspace URL
     variables:
       catalog: {{ .input_project_name }}_prod
-    run_as:
+{{ if (eq .input_enable_cost_tags "yes") }}      # Use a per-environment usage policy to split serverless usage by environment:
+      # usage_policy_id: <prod-usage-policy-id>
+{{ end }}    run_as:
       user_name: ${workspace.current_user.userName}
 {{ if (eq .input_use_lakebase "yes") }}    resources:
       postgres_projects:

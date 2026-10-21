@@ -71,6 +71,16 @@ deployment pattern**. It is a centralized control plane for every LLM call:
 Cost management stops being reactive firefighting and becomes something you tune over time.
 (See Kyra Wulffert's "Preventing Runaway Agent Costs with MLflow AI Gateway" in `sources.md`.)
 
+**Platform usage attribution (complements the Gateway).** The Gateway covers LLM calls. The
+rest of an agent's footprint (Apps, Lakebase, Vector Search, jobs, pipelines) is attributed with
+**tags** that flow into `system.billing.usage`. Tag every resource with at least `project` and
+`environment` (plus `agent` where per-agent resources exist). Serverless compute picks up tags
+only through a **serverless usage policy**, which a workspace admin creates, so plan for one
+per environment. AgentOps Stacks scaffolds this when you opt in
+(`input_enable_cost_tags`). Operate it with the `usage-tracking-ops` skill. Docs:
+[Use tags to attribute and track usage](https://docs.databricks.com/aws/en/admin/account-settings/usage-detail-tags),
+[Serverless usage policies](https://docs.databricks.com/aws/en/admin/usage/budget-policies).
+
 ---
 
 ## Guardrails & safety (Phase 3.3)

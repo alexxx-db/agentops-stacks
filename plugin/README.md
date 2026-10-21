@@ -15,6 +15,7 @@ The plugin and the [DAB template](../template/) share the same scaffold contract
 | **`agentops-lifecycle`** | `walk me through the agentops lifecycle` | Guides an existing scaffold through the complete Single-Account Single-Agent lifecycle — data prep, agent dev, eval gate, SME calibration, CI/CD promotion, batch eval baseline, and production monitoring. 10 steps across dev → staging → prod. |
 | **`add-agent`** | `add agent`, `new agent`, `create another agent` | Adds a new agent to an existing project — copies an existing agent as a template and wires it into `databricks.yml` and the manifest. |
 | **`add-supervisor`** | `add supervisor`, `add a router`, `orchestrate my agents` | Checks whether a supervisor is warranted, then scaffolds a custom LangGraph supervisor that routes across the project's agents into `databricks.yml` and the manifest — gated by the same eval loop as any agent. |
+| **`usage-tracking-ops`** | `track usage`, `cost attribution`, `tag resources`, `usage policy` | Tags project resources (`project`/`environment`/`agent`) and attaches a serverless usage policy for cost attribution. Retrofits tags onto existing scaffolds and queries attributed usage in `system.billing.usage`. |
 
 ### Commands
 

@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Create one serverless usage policy per deployment target for {{ .input_project_name }}.
+#
+# Each policy carries the project's tags (project, environment), which Databricks
+# applies to serverless usage (Apps, Vector Search, serverless jobs/pipelines,
+# Lakebase) of any resource that references the policy. See docs/usage-tracking.md.
+#
+# Requires an ACCOUNT-level CLI profile (the CLI only exposes the account
+# budget-policy API). Without one, a workspace admin (or a user with the
+# "Serverless usage policy: Manager" permission) can create the policies in the
+# workspace instead: Settings > Compute > Serverless usage policies > Manage.
+# See docs/usage-tracking.md.
+#
+# Usage:
+#   ./scripts/create_usage_policy.sh <account-profile> [target ...]
+#   ./scripts/create_usage_policy.sh my-account dev staging prod
+#
+# Safe to re-run: policies that already exist (by name) are reused.
+#
+# Targets default to: dev staging prod
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <account-profile> [target ...]" >&2
+  exit 1
+fi
+
+PROFILE="$1"
+shift
+if [[ $# -gt 0 ]]; then
+  TARGETS=("$@")
+else
+  TARGETS=(dev staging prod)
+fi
+
+PROJECT="{{ .input_project_name }}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ASSIGNMENTS=()
+
+# Reuse policies that already exist by name, so a re-run after a partial failure
+# doesn't create duplicates.
+EXISTING=$(databricks account budget-policy list -p "${PROFILE}" -o json \
+  | python3 -c 'import json, sys
+data = json.load(sys.stdin)
+policies = data.get("policies", []) if isinstance(data, dict) else data
+for p in policies:
+    print(p.get("policy_name", "") + "\t" + p.get("policy_id", ""))')
+
+for target in "${TARGETS[@]}"; do
+  name="${PROJECT}-${target}"
+  policy_id=$(printf '%s\n' "${EXISTING}" | awk -F'\t' -v n="${name}" '$1 == n { print $2; exit }')
+  if [[ -n "${policy_id}" ]]; then
+    echo "Usage policy '${name}' already exists, reusing it." >&2
+    echo "${target}: ${policy_id}"
+    ASSIGNMENTS+=("${target}=${policy_id}")
+    continue
+  fi
+  body=$(cat <<JSON
+{
+  "policy": {
+    "policy_name": "${name}",
+    "custom_tags": [
+      {"key": "project", "value": "${PROJECT}"},
+      {"key": "environment", "value": "${target}"}
+    ]
+  }
+}
+JSON
+)
+  echo "Creating usage policy '${name}'..." >&2
+  policy_id=$(databricks account budget-policy create -p "${PROFILE}" --json "${body}" -o json \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin)["policy_id"])')
+  echo "${target}: ${policy_id}"
+  ASSIGNMENTS+=("${target}=${policy_id}")
+done
+
+# Write the IDs into databricks.yml and uncomment the budget_policy_id lines.
+# This changes nothing if some target would be left without an ID.
+echo >&2
+if ! python3 "${SCRIPT_DIR}/enable_usage_policy.py" "${ASSIGNMENTS[@]}"; then
+  echo >&2
+  echo "Policies were created but not wired in. Once every target has an ID, run:" >&2
+  echo "  python3 scripts/enable_usage_policy.py ${ASSIGNMENTS[*]} <other-target>=<id>" >&2
+  echo "Then grant the User role on each policy (Settings > Compute > Serverless usage policies > Manage > <policy> > Permissions)." >&2
+  exit 1
+fi
+
+cat >&2 <<'EOF'
+
+Last step: in the workspace (Settings > Compute > Serverless usage policies >
+Manage > <policy> > Permissions), grant the User role to the developers and the
+service principals that deploy to staging/prod. Then run
+`databricks bundle validate -t <target>`.
+EOF

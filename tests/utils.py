@@ -29,6 +29,8 @@ DEFAULT_PARAMS = {
     "input_memory_type": "short_term",
     "input_use_uc_functions": "no",
     "input_uc_functions_exist": "no",
+    "input_enable_cost_tags": "yes",
+    "input_usage_policy_id": "",
     "input_eval_dataset_source": "synthetic",
 }
 

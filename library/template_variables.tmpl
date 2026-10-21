@@ -1,5 +1,21 @@
 # define template variables
 
+# databricks/setup-cli pinned to a commit SHA (supply-chain hardening).
+# SHA below is the immutable commit for tag v0.299.1. To bump: resolve the new
+# tag to its commit SHA (`gh api repos/databricks/setup-cli/git/refs/tags/<tag>`)
+# and replace the value here, keeping the version in the trailing comment.
 {{ define `cli_version` -}}
-    v0.299.1
+    79dbb80ee737b2809d7e9fbc1acf4bbf1a95a0f2
+{{- end }}
+
+# Serverless usage-policy attribution line for resources that support
+# `budget_policy_id` (the API field name for serverless usage policies). Rendered
+# live when a policy ID was given at init, otherwise as a commented TODO so an
+# empty ID never reaches the API.
+{{ define `usage_policy_line` -}}
+    {{ if .input_usage_policy_id -}}
+        budget_policy_id: ${var.usage_policy_id}
+    {{- else -}}
+        # budget_policy_id: ${var.usage_policy_id}  # TODO: wire with scripts/enable_usage_policy.py — see docs/usage-tracking.md
+    {{- end }}
 {{- end }}

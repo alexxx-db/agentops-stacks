@@ -5,3 +5,11 @@ resources:
       # parent directory. Group experiments by bundle.name when browsing.
       name: /Shared/${bundle.name}_${bundle.target}
       artifact_location: dbfs:/Volumes/${var.catalog}/${var.schema}/artifacts
+{{ if (eq .input_enable_cost_tags "yes") }}      tags:
+        - key: project
+          value: {{ .input_project_name }}
+        - key: environment
+          value: ${bundle.target}
+        - key: agent
+          value: {{ .input_initial_agent_name }}
+{{ end }}

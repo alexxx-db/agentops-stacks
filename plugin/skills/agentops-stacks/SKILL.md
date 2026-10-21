@@ -25,9 +25,10 @@ Scaffold Progress:
 - [ ] Phase 1: Infrastructure inputs
 - [ ] Phase 2: Data sources
 - [ ] Phase 3: Tools
-- [ ] Phase 4: Evaluation
-- [ ] Phase 5: Validate, confirm, scaffold
-- [ ] Phase 6: Surface next steps
+- [ ] Phase 4: Usage tracking
+- [ ] Phase 5: Evaluation
+- [ ] Phase 6: Validate, confirm, scaffold
+- [ ] Phase 7: Surface next steps
 ```
 
 ### Phase 0: Infer intent from what the user said
@@ -45,6 +46,8 @@ Before asking anything, read the user's description and pre-fill as many inputs 
 | "long-term memory", "cross-session memory", "persistent memory" | `use_lakebase: yes`, `memory_type: long_term` |
 | "UC functions", "Unity Catalog tools", "catalog functions", "SQL tools" | `use_uc_functions: yes` |
 | "functions already exist", "existing UC functions" | `use_uc_functions: yes`, `uc_functions_exist: yes` |
+| "cost attribution", "chargeback", "track usage", "tag resources", "usage policy" | `enable_cost_tags: yes` (still ask for `usage_policy_id`) |
+| "no tags", "don't tag", "skip tagging" | `enable_cost_tags: no` |
 | "GitHub", "GitHub Actions" | `cicd_platform: github_actions` |
 | "GitHub Enterprise", "GHES" | `cicd_platform: github_actions_for_github_enterprise_servers` |
 | "GitLab" | `cicd_platform: gitlab` |
@@ -92,15 +95,22 @@ Confirm or ask only for inputs not inferred:
 8. **use_uc_functions** — `yes`/`no`
    - If yes and `uc_functions_exist` not inferred → **uc_functions_exist** — "Are those UC functions already defined in your catalog?" → `yes`/`no`
 
-### Phase 4: Evaluation
+### Phase 4: Usage tracking
 
-9. **eval_dataset_source** — only ask if not inferred from context:
+9. **enable_cost_tags**: `yes`/`no` (default `yes`). Tags every taggable resource with `project`, `environment` (bundle target), and `agent` (experiments) so usage can be attributed in `system.billing.usage`. With `no`, nothing is tagged.
+   - If yes → **usage_policy_id**: "Do you have an existing serverless usage policy ID to attribute serverless usage (Apps, Vector Search, Lakebase)? Leave blank if not." It must be a UUID or blank.
+   - **Never create a usage policy yourself.** Creating one needs a workspace admin (or the "Serverless usage policy: Manager" permission). If the user has no ID, leave it blank. The scaffold renders the `budget_policy_id` lines commented out, plus `scripts/create_usage_policy.sh` (create + wire), `scripts/enable_usage_policy.py` (wire existing IDs), and `docs/usage-tracking.md` with creation steps. Point them there in Phase 7, or to the `usage-tracking-ops` skill.
+   - Call these "usage policies", not "budget policies". The purpose is tracking, not spend limits. The bundle field is still named `budget_policy_id`.
+
+### Phase 5: Evaluation
+
+10. **eval_dataset_source** — only ask if not inferred from context:
     - `synthetic` — generate a golden dataset using an LLM simulator (default)
     - `manual` — scaffold a notebook with example rows to fill in manually
     - `production_traces` — build from production traces filtered by tag
     - `existing` — skip dataset creation (you already have one)
 
-### Phase 5: Validate, confirm, scaffold
+### Phase 6: Validate, confirm, scaffold
 
 Write all collected inputs to `/tmp/agentops-stacks-inputs.json` using these exact keys:
 
@@ -116,11 +126,13 @@ Write all collected inputs to `/tmp/agentops-stacks-inputs.json` using these exa
   "input_memory_type": "short_term|long_term|both",
   "input_use_uc_functions": "yes|no",
   "input_uc_functions_exist": "yes|no",
+  "input_enable_cost_tags": "yes|no",
+  "input_usage_policy_id": "<uuid or empty string>",
   "input_eval_dataset_source": "synthetic|manual|production_traces|existing"
 }
 ```
 
-Omit conditional keys whose parent is `no` (e.g. omit `input_has_chunked_table` if `input_use_vector_search` is `no`). The schema defaults handle those. Validate:
+Omit conditional keys whose parent is `no` (e.g. omit `input_has_chunked_table` if `input_use_vector_search` is `no`, and `input_usage_policy_id` if `input_enable_cost_tags` is `no`). The schema defaults handle those. Validate:
 
 ```bash
 python scripts/validate_inputs.py --config /tmp/agentops-stacks-inputs.json
@@ -132,7 +144,7 @@ Show the user a summary of which components are enabled, then confirm before run
 bash scripts/scaffold.sh --config /tmp/agentops-stacks-inputs.json --destination <destination>
 ```
 
-### Phase 6: Next steps
+### Phase 7: Next steps
 
 See [reference/post-scaffold.md](reference/post-scaffold.md) for the full next-steps checklist.
 
@@ -141,6 +153,7 @@ After scaffolding:
 2. Set workspace hosts in `databricks.yml` and create Unity Catalog catalogs — see `docs/setup.md`
 3. `databricks bundle validate -t dev`
 4. `databricks bundle deploy -t dev` to deploy
+5. If `enable_cost_tags: yes` and no `usage_policy_id` was given: serverless usage stays untagged until a usage policy is set. See `docs/usage-tracking.md`.
 
 Point the user at the reference example closest to what they just scaffolded:
 

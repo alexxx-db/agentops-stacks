@@ -22,7 +22,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-SKILL_NAMES=("agentops-bigbook" "agentops-stacks" "agentops-lifecycle" "add-agent" "add-supervisor" "right-size-capability" "vector-search-ops" "lakebase-ops" "uc-functions-ops")
+SKILL_NAMES=("agentops-bigbook" "agentops-stacks" "agentops-lifecycle" "add-agent" "add-supervisor" "right-size-capability" "vector-search-ops" "lakebase-ops" "uc-functions-ops" "usage-tracking-ops")
 SKILLS_DIR=".claude/skills"
 INSTALL_TO_GENIE=false
 DB_PROFILE="${DATABRICKS_CONFIG_PROFILE:-DEFAULT}"
@@ -56,6 +56,7 @@ show_help() {
     echo "  - vector-search-ops:  Operate and troubleshoot the Vector Search component"
     echo "  - lakebase-ops:       Operate and troubleshoot the Lakebase memory component"
     echo "  - uc-functions-ops:   Register, grant, and manage UC function tools"
+    echo "  - usage-tracking-ops: Tag resources and attach usage policies for cost attribution"
     echo ""
 }
 
@@ -92,6 +93,9 @@ list_skills() {
     echo ""
     echo -e "  ${GREEN}uc-functions-ops${NC}"
     echo "    Register new functions, update EXECUTE grants, list registered UC tools"
+    echo ""
+    echo -e "  ${GREEN}usage-tracking-ops${NC}"
+    echo "    Tag resources, set up serverless usage policies, query attributed usage"
     echo ""
 }
 

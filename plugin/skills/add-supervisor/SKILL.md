@@ -85,6 +85,8 @@ any other agent — no extra workflow.
 3. Adds `langgraph-supervisor` to `pyproject.toml`.
 4. Appends an experiment + app resource to `databricks.yml`.
 5. Records the supervisor in `.agentops-stacks/manifest.yml`.
+
+With usage tracking enabled (a `usage_policy_id` variable in `databricks.yml`), the experiment gets `project`/`environment`/`agent` tags and the app gets the usage policy line, same as `add_agent.py`.
 → CI's `detect_patterns → eval_gate` picks it up automatically (it has `eval/gates.yml`).
 
 ## After adding

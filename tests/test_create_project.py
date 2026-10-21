@@ -7,6 +7,11 @@ tests/test_create_project.py pattern, adapted to the agentops-stacks schema.
 Grounded against the real output of Databricks CLI v1.1.0.
 """
 
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from utils import (
@@ -49,6 +54,14 @@ GO_TEMPLATE_COMBOS = [
     ("cloud=gcp", {"input_cloud": "gcp"}),
     ("cicd=azure_devops", {"input_cicd_platform": "azure_devops"}),
     ("cicd=gitlab", {"input_cicd_platform": "gitlab"}),
+    ("tags=no", {"input_enable_cost_tags": "no"}),
+    ("tags+policy", {"input_usage_policy_id": "1a2b3c4d-1234-5678-9abc-0123456789ab"}),
+    ("tags+all_components", {
+        "input_use_vector_search": "yes",
+        "input_use_lakebase": "yes",
+        "input_use_uc_functions": "yes",
+        "input_usage_policy_id": "1a2b3c4d-1234-5678-9abc-0123456789ab",
+    }),
 ]
 
 
@@ -237,6 +250,34 @@ def test_vector_search_enabled_emits_resources(tmp_path):
     assert file_exists(p, "resources/vector_search.yml")
     assert file_exists(p, "resources/data_pipeline.yml")
     assert file_exists(p, "src/components/retriever/data_pipeline.py")
+
+
+@pytest.mark.parametrize("cost_tags", ["yes", "no"])
+def test_data_pipeline_is_serverless(tmp_path, cost_tags):
+    """Serverless-only workspaces reject classic pipelines; dev mode comes from the target."""
+    p = gen(tmp_path, input_use_vector_search="yes", input_enable_cost_tags=cost_tags)
+    pipeline = read_file(p, "resources/data_pipeline.yml")
+    assert "serverless: true" in pipeline
+    assert "development:" not in pipeline
+
+
+@pytest.mark.parametrize("cost_tags", ["yes", "no"])
+def test_uc_registration_job_defaults_to_serverless(tmp_path, cost_tags):
+    """No live cluster setting: the task runs on serverless (tagged via the usage policy)."""
+    p = gen(tmp_path, input_use_uc_functions="yes", input_enable_cost_tags=cost_tags)
+    job = read_file(p, "resources/uc_function_registration.yml")
+    live = [l.strip() for l in job.splitlines() if not l.strip().startswith("#")]
+    assert not any(l.startswith(("existing_cluster_id:", "job_clusters:", "job_cluster_key:")) for l in live)
+    assert "# job_clusters:" in job
+
+
+def test_uc_registration_job_classic_example_tags_cluster(tmp_path):
+    """Classic compute bills under cluster custom_tags, so the job_clusters example carries them."""
+    p = gen(tmp_path, input_use_uc_functions="yes")
+    job = read_file(p, "resources/uc_function_registration.yml")
+    assert "#       custom_tags:" in job
+    assert f"#         project: {DEFAULT_PROJECT_NAME}" in job
+    assert "#         environment: ${bundle.target}" in job
 
 
 def test_vector_search_disabled_omits_resources(tmp_path):
@@ -457,6 +498,139 @@ def test_manifest_records_component_choices(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Usage tracking / cost-attribution tags
+# ---------------------------------------------------------------------------
+
+POLICY_ID = "1a2b3c4d-1234-5678-9abc-0123456789ab"
+ALL_COMPONENTS = {
+    "input_use_vector_search": "yes",
+    "input_use_lakebase": "yes",
+    "input_use_uc_functions": "yes",
+}
+LIVE_POLICY_LINE = "budget_policy_id: ${var.usage_policy_id}"
+COMMENTED_POLICY_LINE = "# budget_policy_id: ${var.usage_policy_id}"
+POLICY_RESOURCE_FILES = [
+    "databricks.yml",
+    "resources/lakebase.yml",
+    "resources/vector_search.yml",
+    "resources/data_pipeline.yml",
+    "resources/uc_function_registration.yml",
+]
+
+
+def _live_policy_lines(content):
+    return [l for l in content.splitlines() if l.strip() == LIVE_POLICY_LINE]
+
+
+def test_tags_disabled_renders_no_tagging(tmp_path):
+    """Opting out renders nothing tag-related: no tags, policy, docs, or script."""
+    p = gen(tmp_path, input_enable_cost_tags="no", **ALL_COMPONENTS)
+    for f in [
+        "databricks.yml",
+        "resources/experiment.yml",
+        "resources/lakebase.yml",
+        "resources/vector_search.yml",
+        "resources/data_pipeline.yml",
+        "resources/uc_function_registration.yml",
+    ]:
+        content = read_file(p, f)
+        for s in ["tags:", "custom_tags:", "budget_policy_id", "usage_policy_id"]:
+            assert s not in content, f"{s!r} unexpectedly in {f}"
+    assert not file_exists(p, "docs/usage-tracking.md")
+    assert not file_exists(p, "scripts/create_usage_policy.sh")
+
+
+def test_tags_enabled_tags_every_taggable_resource(tmp_path):
+    p = gen(tmp_path, **ALL_COMPONENTS)
+    lakebase = read_file(p, "resources/lakebase.yml")
+    assert "custom_tags:" not in lakebase  # tags come from the usage policy
+    assert "budget_policy_id" in lakebase
+    for f in ["resources/uc_function_registration.yml", "resources/data_pipeline.yml"]:
+        content = read_file(p, f)
+        assert f"project: {DEFAULT_PROJECT_NAME}" in content, f
+        assert "environment: ${bundle.target}" in content, f
+    experiment = read_file(p, "resources/experiment.yml")
+    assert "key: agent" in experiment
+    assert "value: default" in experiment
+    assert file_exists(p, "docs/usage-tracking.md")
+    assert file_exists(p, "scripts/create_usage_policy.sh")
+
+
+def test_tags_without_policy_comments_out_policy_lines(tmp_path):
+    """A blank policy ID must never render a live budget_policy_id (empty ID breaks deploy)."""
+    p = gen(tmp_path, **ALL_COMPONENTS)
+    for f in POLICY_RESOURCE_FILES:
+        content = read_file(p, f)
+        assert COMMENTED_POLICY_LINE in content, f
+        assert not _live_policy_lines(content), f
+    assert 'default: ""' in read_file(p, "databricks.yml")
+
+
+def test_tags_with_policy_wires_policy_everywhere(tmp_path):
+    p = gen(tmp_path, input_usage_policy_id=POLICY_ID, **ALL_COMPONENTS)
+    for f in POLICY_RESOURCE_FILES:
+        assert _live_policy_lines(read_file(p, f)), f"No live policy line in {f}"
+    assert f'default: "{POLICY_ID}"' in read_file(p, "databricks.yml")
+
+
+def test_usage_tracking_doc_and_script_reference_project(tmp_path):
+    p = gen(tmp_path)
+    assert DEFAULT_PROJECT_NAME in read_file(p, "docs/usage-tracking.md")
+    script = read_file(p, "scripts/create_usage_policy.sh")
+    assert f'PROJECT="{DEFAULT_PROJECT_NAME}"' in script
+    assert "databricks account budget-policy create" in script
+    assert "enable_usage_policy.py" in script
+
+
+def _wire(tmp_path, *args):
+    """Copy a tags-on, blank-policy project (generated projects are cached) and run the wiring script."""
+    project = tmp_path / "wired"
+    shutil.copytree(gen(tmp_path, **ALL_COMPONENTS), project)
+    result = subprocess.run(
+        [sys.executable, "scripts/enable_usage_policy.py", *args],
+        cwd=project, capture_output=True, text=True,
+    )
+    return project, result
+
+
+def test_enable_usage_policy_wires_every_target(tmp_path):
+    other = "aaaaaaaa-1234-5678-9abc-0123456789ab"
+    p, result = _wire(tmp_path, f"dev={POLICY_ID}", f"staging={other}", f"prod={other}")
+    assert result.returncode == 0, result.stderr
+    databricks_yml = read_file(p, "databricks.yml")
+    assert f"      usage_policy_id: {POLICY_ID}" in databricks_yml
+    assert databricks_yml.count(f"      usage_policy_id: {other}") == 2
+    for f in POLICY_RESOURCE_FILES:
+        content = read_file(p, f)
+        assert _live_policy_lines(content), f"No live policy line in {f}"
+        assert COMMENTED_POLICY_LINE not in content, f
+
+
+def test_enable_usage_policy_shared_default(tmp_path):
+    p, result = _wire(tmp_path, "--default", POLICY_ID)
+    assert result.returncode == 0, result.stderr
+    assert f'default: "{POLICY_ID}"' in read_file(p, "databricks.yml")
+    for f in POLICY_RESOURCE_FILES:
+        assert _live_policy_lines(read_file(p, f)), f
+
+
+def test_enable_usage_policy_refuses_when_a_target_has_no_id(tmp_path):
+    """A target without an ID would deploy an empty budget_policy_id, so nothing may change."""
+    p, result = _wire(tmp_path, f"dev={POLICY_ID}", f"prod={POLICY_ID}")
+    assert result.returncode != 0
+    assert "staging" in result.stderr
+    original = gen(tmp_path, **ALL_COMPONENTS)
+    for f in POLICY_RESOURCE_FILES:
+        assert read_file(p, f) == read_file(original, f), f
+
+
+@pytest.mark.parametrize("args", [["dev=not-a-uuid"], [f"qa={POLICY_ID}"]], ids=["bad_id", "unknown_target"])
+def test_enable_usage_policy_rejects_bad_input(tmp_path, args):
+    _, result = _wire(tmp_path, *args)
+    assert result.returncode != 0
+
+
+# ---------------------------------------------------------------------------
 # Cloud x CICD matrix — every combination generates cleanly
 # ---------------------------------------------------------------------------
 
@@ -485,6 +659,7 @@ INVALID = [
     ("name_uppercase", {"input_project_name": "MyProject", "input_root_dir": "MyProject"}),
     ("name_starts_digit", {"input_project_name": "1bad", "input_root_dir": "1bad"}),
     ("agent_name_too_short", {"input_initial_agent_name": "ab"}),
+    ("usage_policy_id_not_uuid", {"input_usage_policy_id": "not-a-policy-id"}),
 ]
 
 
@@ -492,3 +667,43 @@ INVALID = [
 def test_invalid_params_rejected(tmp_path, label, params):
     with pytest.raises(RuntimeError):
         gen(tmp_path, **params)
+
+
+# ---------------------------------------------------------------------------
+# validate_inputs.py usage-tracking checks
+# ---------------------------------------------------------------------------
+
+_VALIDATOR = Path(__file__).resolve().parents[1] / "plugin/skills/agentops-stacks/scripts/validate_inputs.py"
+
+
+def _validate(**overrides):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("validate_inputs", _VALIDATOR)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    config = {"input_project_name": "my_project", "input_root_dir": "my_project", **overrides}
+    return mod.validate(config)
+
+
+def test_validator_defaults_cost_tags_to_yes():
+    _, warnings = _validate()
+    assert any("No usage policy ID" in w for w in warnings)
+
+
+@pytest.mark.parametrize("policy_id", [12345, f"{POLICY_ID}\n"], ids=["not_str", "trailing_newline"])
+def test_validator_rejects_malformed_policy_id(policy_id):
+    errors, _ = _validate(input_usage_policy_id=policy_id)
+    assert any("usage_policy_id" in e for e in errors)
+
+
+def test_validator_accepts_null_policy_id():
+    errors, _ = _validate(input_usage_policy_id=None)
+    assert not any("usage_policy_id" in e for e in errors)
+
+
+def test_databricks_yml_has_single_blank_line_before_include(tmp_path):
+    for tags in ["yes", "no"]:
+        p = gen(tmp_path / tags, input_enable_cost_tags=tags)
+        assert "\n\n\ninclude:" not in read_file(p, "databricks.yml")
+        assert "\n\ninclude:" in read_file(p, "databricks.yml")
